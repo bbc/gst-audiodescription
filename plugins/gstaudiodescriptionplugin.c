@@ -46,16 +46,16 @@
 #endif
 
 #include <gst/gst.h>
-#include "gstaudiodescription.h"
+#include "gstwhp198dec.h"
 
 static gboolean
 plugin_init (GstPlugin * plugin)
 {
-  gst_element_register (plugin, "audiodescription", GST_RANK_NONE,
-      GST_TYPE_AUDIODESCRIPTION);
+  gst_element_register (plugin, "whp198dec", GST_RANK_NONE,
+      GST_TYPE_WHP198DEC);
 
   return TRUE;
 }
 
-GST_PLUGIN_DEFINE (GST_VERSION_MAJOR, GST_VERSION_MINOR, audiodescription, "FIXME Template plugin", plugin_init, VERSION, "LGPL",       /* FIXME */
+GST_PLUGIN_DEFINE (GST_VERSION_MAJOR, GST_VERSION_MINOR, audiodescription, "Elements handling audio-description formats", plugin_init, VERSION, "LGPL",
     "GStreamer", "http://gstreamer.net/")

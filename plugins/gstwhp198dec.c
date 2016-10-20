@@ -385,13 +385,16 @@ gst_whp198dec_handle_frame (GstWhp198dec *dec, GstBuffer * buffer)
         } else if (dec->manchester.state == STATE_FIRST_TRANSITION) {
           double error = dec->manchester.in_sample_count - dec->manchester.next_expected_transition_sample;
           if (epsilon_equals(error, -dec->manchester.duration_estimate / 2, EPSILON_SAMPLES)) {
-            // this is a transition inbetween bit-centres, rather than
-            // a bit-center transition itself
+            // this is a transition inbetween bit-centres, rather than a
+            // bit-center transition itself.  Ignore it and wait for the bit
+            // centre to turn up in about duration_estimate/2 samples
           } else if (epsilon_equals(error, dec->manchester.duration_estimate / 2, EPSILON_SAMPLES)) {
+            // we are out of phase (initial transition must have been a half
+            // bit),
             dec->manchester.next_expected_transition_sample -= dec->manchester.duration_estimate / 2;
           } else if (epsilon_equals(error, 0, EPSILON_SAMPLES)) {
             // found transition at the expected bit-centre, so we are
-            // have hopefully in sync,
+            // hopefully in sync,
             dec->manchester.state = STATE_SYNCHRONISED;
             dec->manchester.next_expected_transition_sample += dec->manchester.duration_estimate;
             GST_DEBUG_OBJECT (dec, "sync found at in_sample_count=%ld", dec->manchester.in_sample_count);

@@ -278,7 +278,7 @@ static guint16 crc_16_ccitt(const guint8 *data, const size_t length)
 #define BYTE 8
 
 static void
-ad_decoded_bit(GstWhp198dec *dec, const int bit)
+ad_decoded_bit(GstWhp198dec *dec, const int bit, GstClockTime ts)
 {
   dec->descriptor.accumulator <<= 1;
   dec->descriptor.accumulator |= bit;
@@ -295,6 +295,13 @@ ad_decoded_bit(GstWhp198dec *dec, const int bit)
         GST_DEBUG_OBJECT (dec, "found descriptor, length=%d, revision=%x, fade=%x", descriptor_length, revision_text_tag, AD_fade);
         int reserved_bytes = 7;
         GstBuffer *buf = gst_buffer_new_and_alloc (1 + descriptor_length + reserved_bytes);
+        // Assign a timestamp to the buffer holding the descriptor based on the
+        // timestamp of the just-decoded manchester bit.  Might make more sense
+        // to use the timestamp of what we now believe to be the initial bit of
+        // this descriptor, but it's not clear to me exactly what the intended
+        // time of application is for a given descriptor, so this will probably
+        // do,
+        GST_BUFFER_PTS(buf) = ts;
         GstMapInfo map;
         gst_buffer_map (buf, &map, GST_MAP_WRITE);
         dec->descriptor.buffer_write_offset = 0;
@@ -346,7 +353,7 @@ epsilon_equals(const float a, const float b, const float epsilon)
   return fabs(a - b) < epsilon;
 }
 
-#define SAMPLE_FREQ 48000.0  // samples-per-second
+#define SAMPLE_FREQ 48000  // samples-per-second
 #define DATA_RATE   1280.0   // bits-per-second
 #define EPSILON_SAMPLES 5
 #define THRESHOLD 1000
@@ -361,8 +368,10 @@ gst_whp198dec_handle_frame (GstWhp198dec *dec, GstBuffer * buffer)
     return GST_FLOW_OK;
   }
 
+  GstClockTime ts = GST_BUFFER_PTS(buffer);
+  GST_DEBUG_OBJECT (dec, "buf=%p, ts=%ld", buffer, ts);
   gst_buffer_map (buffer, &map, GST_MAP_READ);
-  gint samples = map.size / 2;
+  gint samples = map.size / sizeof(guint16);
   gint16 *data = (gint16 *) map.data;
   for (int i=0; i<samples; i++) {
     gint sample = data[i];
@@ -413,7 +422,7 @@ gst_whp198dec_handle_frame (GstWhp198dec *dec, GstBuffer * buffer)
               GST_DEBUG_OBJECT (dec, "duration_estimate becomes %f, error=%f", dec->manchester.duration_estimate, error);
             }
             int bit = delta < 0 ? 1 : 0;
-            ad_decoded_bit(dec, bit);
+            ad_decoded_bit(dec, bit, ts + i * GST_SECOND / SAMPLE_FREQ);
             dec->manchester.next_expected_transition_sample += dec->manchester.duration_estimate;
           } else {
             dec->manchester.state = STATE_UNSYNCHRONISED;

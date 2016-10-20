@@ -38,7 +38,6 @@
 #include <stdlib.h>
 #include <math.h>
 #include <gst/gst.h>
-#include <gst/audio/gstaudioencoder.h>
 #include "gstwhp198dec.h"
 
 GST_DEBUG_CATEGORY_STATIC (gst_whp198dec_debug_category);
@@ -54,28 +53,8 @@ static void gst_whp198dec_get_property (GObject * object,
 static void gst_whp198dec_dispose (GObject * object);
 static void gst_whp198dec_finalize (GObject * object);
 
-static gboolean gst_whp198dec_start (GstAudioEncoder * encoder);
-static gboolean gst_whp198dec_stop (GstAudioEncoder * encoder);
-static gboolean gst_whp198dec_set_format (GstAudioEncoder * encoder,
-    GstAudioInfo * info);
-static GstFlowReturn gst_whp198dec_handle_frame (GstAudioEncoder * encoder,
+static GstFlowReturn gst_whp198dec_handle_frame (GstWhp198dec *dec,
     GstBuffer * buffer);
-static void gst_whp198dec_flush (GstAudioEncoder * encoder);
-static GstFlowReturn gst_whp198dec_pre_push (GstAudioEncoder * encoder,
-    GstBuffer ** buffer);
-static gboolean gst_whp198dec_sink_event (GstAudioEncoder * encoder,
-    GstEvent * event);
-static gboolean gst_whp198dec_src_event (GstAudioEncoder * encoder,
-    GstEvent * event);
-static GstCaps *gst_whp198dec_getcaps (GstAudioEncoder * encoder,
-    GstCaps * filter);
-static gboolean gst_whp198dec_open (GstAudioEncoder * encoder);
-static gboolean gst_whp198dec_close (GstAudioEncoder * encoder);
-static gboolean gst_whp198dec_negotiate (GstAudioEncoder * encoder);
-static gboolean gst_whp198dec_decide_allocation (GstAudioEncoder * encoder,
-    GstQuery * query);
-static gboolean gst_whp198dec_propose_allocation (GstAudioEncoder * encoder,
-    GstQuery * query);
 
 enum
 {
@@ -116,7 +95,7 @@ GST_STATIC_PAD_TEMPLATE ("sink",
 
 /* class initialization */
 
-G_DEFINE_TYPE_WITH_CODE (GstWhp198dec, gst_whp198dec, GST_TYPE_AUDIO_ENCODER,
+G_DEFINE_TYPE_WITH_CODE (GstWhp198dec, gst_whp198dec, GST_TYPE_ELEMENT,
     GST_DEBUG_CATEGORY_INIT (gst_whp198dec_debug_category, "whp198dec", 0,
         "debug category for whp198dec element"));
 
@@ -124,7 +103,6 @@ static void
 gst_whp198dec_class_init (GstWhp198decClass * klass)
 {
   GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
-  GstAudioEncoderClass *audio_encoder_class = GST_AUDIO_ENCODER_CLASS (klass);
 
   /* Setting up pads and setting metadata should be moved to
      base_class_init if you intend to subclass this class. */
@@ -143,26 +121,13 @@ gst_whp198dec_class_init (GstWhp198decClass * klass)
   gobject_class->get_property = gst_whp198dec_get_property;
   gobject_class->dispose = gst_whp198dec_dispose;
   gobject_class->finalize = gst_whp198dec_finalize;
-  audio_encoder_class->start = GST_DEBUG_FUNCPTR (gst_whp198dec_start);
-  audio_encoder_class->stop = GST_DEBUG_FUNCPTR (gst_whp198dec_stop);
-  audio_encoder_class->set_format =
-      GST_DEBUG_FUNCPTR (gst_whp198dec_set_format);
-  audio_encoder_class->handle_frame =
-      GST_DEBUG_FUNCPTR (gst_whp198dec_handle_frame);
-  audio_encoder_class->flush = GST_DEBUG_FUNCPTR (gst_whp198dec_flush);
-  audio_encoder_class->pre_push = GST_DEBUG_FUNCPTR (gst_whp198dec_pre_push);
-  audio_encoder_class->sink_event =
-      GST_DEBUG_FUNCPTR (gst_whp198dec_sink_event);
-  audio_encoder_class->src_event = GST_DEBUG_FUNCPTR (gst_whp198dec_src_event);
-  audio_encoder_class->getcaps = GST_DEBUG_FUNCPTR (gst_whp198dec_getcaps);
-  audio_encoder_class->open = GST_DEBUG_FUNCPTR (gst_whp198dec_open);
-  audio_encoder_class->close = GST_DEBUG_FUNCPTR (gst_whp198dec_close);
-  audio_encoder_class->negotiate = GST_DEBUG_FUNCPTR (gst_whp198dec_negotiate);
-  audio_encoder_class->decide_allocation =
-      GST_DEBUG_FUNCPTR (gst_whp198dec_decide_allocation);
-  audio_encoder_class->propose_allocation =
-      GST_DEBUG_FUNCPTR (gst_whp198dec_propose_allocation);
+}
 
+static GstFlowReturn
+gst_whp198dec_chain (GstPad * pad, GstObject * parent, GstBuffer * buffer)
+{
+  GstWhp198dec *whp198dec = GST_WHP198DEC (parent);
+  return gst_whp198dec_handle_frame (whp198dec, buffer);
 }
 
 static void
@@ -179,6 +144,19 @@ gst_whp198dec_init (GstWhp198dec * whp198dec)
   whp198dec->descriptor.state = AD_STATE_AWAIT_TAG;
   whp198dec->descriptor.buffer = NULL;
   whp198dec->descriptor.buffer_write_offset = 0;
+
+  whp198dec->srcpad =
+      gst_pad_new_from_static_template (&gst_whp198dec_src_template, "src");
+  whp198dec->sinkpad =
+      gst_pad_new_from_static_template (&gst_whp198dec_sink_template, "sink");
+
+  gst_pad_set_chain_function (whp198dec->sinkpad,
+      GST_DEBUG_FUNCPTR (gst_whp198dec_chain));
+  gst_pad_use_fixed_caps (whp198dec->sinkpad);
+  gst_pad_use_fixed_caps (whp198dec->srcpad);
+
+  gst_element_add_pad (GST_ELEMENT (whp198dec), whp198dec->srcpad);
+  gst_element_add_pad (GST_ELEMENT (whp198dec), whp198dec->sinkpad);
 }
 
 void
@@ -238,35 +216,6 @@ gst_whp198dec_finalize (GObject * object)
   G_OBJECT_CLASS (gst_whp198dec_parent_class)->finalize (object);
 }
 
-static gboolean
-gst_whp198dec_start (GstAudioEncoder * encoder)
-{
-  GstWhp198dec *whp198dec = GST_WHP198DEC (encoder);
-
-  GST_DEBUG_OBJECT (whp198dec, "start");
-
-  return TRUE;
-}
-
-static gboolean
-gst_whp198dec_stop (GstAudioEncoder * encoder)
-{
-  GstWhp198dec *whp198dec = GST_WHP198DEC (encoder);
-
-  GST_DEBUG_OBJECT (whp198dec, "stop");
-
-  return TRUE;
-}
-
-static gboolean
-gst_whp198dec_set_format (GstAudioEncoder * encoder, GstAudioInfo * info)
-{
-  GstWhp198dec *whp198dec = GST_WHP198DEC (encoder);
-
-  GST_DEBUG_OBJECT (whp198dec, "set_format");
-
-  return TRUE;
-}
 
 #define AD_TEXT_TAG 0x4454474144
 
@@ -380,7 +329,7 @@ ad_decoded_bit(GstWhp198dec *dec, const int bit)
         int crc = crc_16_ccitt(map.data, gst_buffer_get_size(dec->descriptor.buffer));
         gst_buffer_unmap(dec->descriptor.buffer, &map);
         if (crc == 0) {
-          GstFlowReturn ret = gst_pad_push (GST_AUDIO_ENCODER_SRC_PAD (dec), dec->descriptor.buffer);
+          GstFlowReturn ret = gst_pad_push (dec->srcpad, dec->descriptor.buffer);
         } else {
           GST_DEBUG_OBJECT (dec, "Incorrect descriptor CRC found");
           gst_buffer_unref(dec->descriptor.buffer);
@@ -404,9 +353,8 @@ epsilon_equals(const float a, const float b, const float epsilon)
 #define DAMPING 0.1  // between 0 and 1: closer to 1 gives faster convergence, closer to 0 gives better immunity against transient errors
 
 static GstFlowReturn
-gst_whp198dec_handle_frame (GstAudioEncoder * encoder, GstBuffer * buffer)
+gst_whp198dec_handle_frame (GstWhp198dec *dec, GstBuffer * buffer)
 {
-  GstWhp198dec *dec = GST_WHP198DEC (encoder);
   GstMapInfo map;
 
   if (!buffer) {
@@ -480,157 +428,4 @@ gst_whp198dec_handle_frame (GstAudioEncoder * encoder, GstBuffer * buffer)
   //GST_DEBUG_OBJECT (dec, "handle_frame; %d samples, discont=%d", samples, GST_BUFFER_IS_DISCONT(buffer));
   gst_buffer_unmap (buffer, &map);
   return GST_FLOW_OK;
-}
-
-static void
-gst_whp198dec_flush (GstAudioEncoder * encoder)
-{
-  GstWhp198dec *whp198dec = GST_WHP198DEC (encoder);
-
-  GST_DEBUG_OBJECT (whp198dec, "flush");
-
-}
-
-static GstFlowReturn
-gst_whp198dec_pre_push (GstAudioEncoder * encoder, GstBuffer ** buffer)
-{
-  GstWhp198dec *whp198dec = GST_WHP198DEC (encoder);
-
-  GST_DEBUG_OBJECT (whp198dec, "pre_push");
-
-  return GST_FLOW_OK;
-}
-
-static gboolean
-gst_whp198dec_sink_event (GstAudioEncoder * enc, GstEvent * event)
-{
-  GstWhp198dec *whp198dec = GST_WHP198DEC (enc);
-
-  gboolean ret = FALSE;
-
-  GST_DEBUG ("Received %s event on sinkpad, %" GST_PTR_FORMAT,
-      GST_EVENT_TYPE_NAME (event), event);
-
-  switch (GST_EVENT_TYPE (event)) {
-    case GST_EVENT_EOS:
-      ret = GST_AUDIO_ENCODER_CLASS (gst_whp198dec_parent_class)->sink_event (enc, event);
-      break;
-    case GST_EVENT_TAG:
-      ret = GST_AUDIO_ENCODER_CLASS (gst_whp198dec_parent_class)->sink_event (enc, event);
-      break;
-    case GST_EVENT_TOC:
-      ret = GST_AUDIO_ENCODER_CLASS (gst_whp198dec_parent_class)->sink_event (enc, event);
-      break;
-    case GST_EVENT_SEGMENT:
-      ret = GST_AUDIO_ENCODER_CLASS (gst_whp198dec_parent_class)->sink_event (enc, event);
-      break;
-    default:
-      ret = GST_AUDIO_ENCODER_CLASS (gst_whp198dec_parent_class)->sink_event (enc, event);
-      break;
-  }
-
-  return ret;
-}
-
-static gboolean
-gst_whp198dec_src_event (GstAudioEncoder * encoder, GstEvent * event)
-{
-  GstWhp198dec *whp198dec = GST_WHP198DEC (encoder);
-
-  GST_DEBUG_OBJECT (whp198dec, "src_event");
-
-  return TRUE;
-}
-
-static GstCaps *
-gst_whp198dec_getcaps (GstAudioEncoder * enc, GstCaps * filter)
-{
-  GstCaps *ret = NULL, *caps = NULL;
-  GstPad *pad;
-
-  pad = GST_AUDIO_ENCODER_SINK_PAD (enc);
-
-  if (gst_pad_has_current_caps (pad)) {
-    ret = gst_pad_get_current_caps (pad);
-    GST_DEBUG_OBJECT (pad, "Return current caps %" GST_PTR_FORMAT, ret);
-  } else {
-    GValue v_list = { 0, };
-    GValue v = { 0, };
-    GstStructure *s;
-
-    g_value_init (&v_list, GST_TYPE_LIST);
-    g_value_init (&v, G_TYPE_STRING);
-
-    g_value_set_static_string (&v, GST_AUDIO_NE (S16));
-    gst_value_list_append_value (&v_list, &v);
-    g_value_unset (&v);
-
-    s = gst_structure_new_empty ("audio/x-raw");
-    gst_structure_take_value (s, "format", &v_list);
-
-    gst_structure_set (s, "layout", G_TYPE_STRING, "interleaved",
-        "rate", G_TYPE_INT, 48000, NULL);
-
-    ret = gst_caps_new_empty ();
-    gst_structure_set (s, "channels", G_TYPE_INT, 1, NULL);
-    gst_caps_append_structure (ret, s);
-
-    GST_DEBUG_OBJECT (pad, "Return new caps %" GST_PTR_FORMAT, ret);
-  }
-
-
-  caps = gst_audio_encoder_proxy_getcaps (enc, ret, filter);
-  gst_caps_unref (ret);
-
-  return caps;
-}
-
-static gboolean
-gst_whp198dec_open (GstAudioEncoder * encoder)
-{
-  GstWhp198dec *whp198dec = GST_WHP198DEC (encoder);
-
-  GST_DEBUG_OBJECT (whp198dec, "open");
-
-  return TRUE;
-}
-
-static gboolean
-gst_whp198dec_close (GstAudioEncoder * encoder)
-{
-  GstWhp198dec *whp198dec = GST_WHP198DEC (encoder);
-
-  GST_DEBUG_OBJECT (whp198dec, "close");
-
-  return TRUE;
-}
-
-static gboolean
-gst_whp198dec_negotiate (GstAudioEncoder * encoder)
-{
-  GstWhp198dec *whp198dec = GST_WHP198DEC (encoder);
-
-  GST_DEBUG_OBJECT (whp198dec, "negotiate");
-
-  return TRUE;
-}
-
-static gboolean
-gst_whp198dec_decide_allocation (GstAudioEncoder * encoder, GstQuery * query)
-{
-  GstWhp198dec *whp198dec = GST_WHP198DEC (encoder);
-
-  GST_DEBUG_OBJECT (whp198dec, "decide_allocation %" GST_PTR_FORMAT, query);
-
-  return TRUE;
-}
-
-static gboolean
-gst_whp198dec_propose_allocation (GstAudioEncoder * encoder, GstQuery * query)
-{
-  GstWhp198dec *whp198dec = GST_WHP198DEC (encoder);
-
-  GST_DEBUG_OBJECT (whp198dec, "propose_allocation %" GST_PTR_FORMAT, query);
-
-  return TRUE;
 }

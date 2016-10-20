@@ -21,7 +21,6 @@
 #define _GST_WHP198DEC_H_
 
 #include <stdbool.h>
-#include <gst/audio/gstaudioencoder.h>
 
 G_BEGIN_DECLS
 
@@ -37,7 +36,9 @@ typedef struct _GstWhp198decClass GstWhp198decClass;
 
 struct _GstWhp198dec
 {
-  GstAudioEncoder base_whp198dec;
+  GstElement base_whp198dec;
+
+  GstPad *sinkpad, *srcpad;
 
   // state of Manchester Encoding decode process,
   struct {
@@ -67,7 +68,7 @@ struct _GstWhp198dec
 
 struct _GstWhp198decClass
 {
-  GstAudioEncoderClass base_whp198dec_class;
+  GstElementClass base_whp198dec_class;
 };
 
 GType gst_whp198dec_get_type (void);

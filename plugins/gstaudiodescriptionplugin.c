@@ -47,12 +47,15 @@
 
 #include <gst/gst.h>
 #include "gstwhp198dec.h"
+#include "gstadcontrol.h"
 
 static gboolean
 plugin_init (GstPlugin * plugin)
 {
   gst_element_register (plugin, "whp198dec", GST_RANK_NONE,
       GST_TYPE_WHP198DEC);
+  gst_element_register (plugin, "adcontrol", GST_RANK_NONE,
+      GST_TYPE_ADCONTROL);
 
   return TRUE;
 }

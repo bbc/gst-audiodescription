@@ -26,9 +26,9 @@ The elements are,
 ## Limitations
 
 
- * Volume changes for the main track are auidably abrupt - there's no interpolation between 'fade' control steps
+ * Volume changes for the main track are audibly abrupt - there's no interpolation between 'fade' control steps
  * Volume changes are not explicitly synchronised to the audio stream, which might cause problems for some pipeline structures (untested)
- * The _whp198dec_ element hs not been generalized to support multiple sample formats and bit rates - use other Gestreamer elements to convert as required
+ * The _whp198dec_ element hs not been generalized to support multiple sample formats and bit rates - use other Gstreamer elements to convert as required
  * Ignores 'pan' information (I have no example content using the panning feature)
 
 

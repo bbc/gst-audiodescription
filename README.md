@@ -5,7 +5,7 @@ The elements are,
  * *whp198dec* - extracts ``AD_descriptor`` structures from an audio waveform, encoded per [BBC R&D whitepaper WHP 198](http://www.bbc.co.uk/rd/publications/whitepaper198)
  * *adcontrol* - consumes buffers of ``AD_descriptor`` structures and uses these to control an internal 'volume' element; used to implement the 'fading' of the audio of the main presentation as required for the audio description content to be heard clearly
 
-
+````
                    +-------------+
     WHP 198 signal |             |
     +-------------->  whp198dec  |
@@ -21,7 +21,7 @@ The elements are,
                    +-------------+
                                     Description audio
     +-------------------------------------------->
-
+````
 
 ## Limitations
 

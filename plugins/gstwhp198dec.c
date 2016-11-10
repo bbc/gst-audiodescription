@@ -222,6 +222,7 @@ gst_whp198dec_finalize (GObject * object)
 static void
 ad_discontinuity(GstWhp198dec *dec)
 {
+  dec->descriptor.state = AD_STATE_AWAIT_TAG;
   dec->descriptor.accumulator = 0;
   if (dec->descriptor.buffer) {
     gst_buffer_unref(dec->descriptor.buffer);

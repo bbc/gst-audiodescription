@@ -42,6 +42,8 @@
 #include <gst/gst.h>
 #include <gst/audio/audio.h>
 #include <gst/audio/streamvolume.h>
+#include <gst/controller/gstinterpolationcontrolsource.h>
+#include <gst/controller/gstdirectcontrolbinding.h>
 #include "gstadcontrol.h"
 
 GST_DEBUG_CATEGORY_STATIC (gst_adcontrol_debug_category);
@@ -131,6 +133,15 @@ gst_adcontrol_init (GstAdcontrol *self)
     GST_WARNING_OBJECT (self, "failed to create volume element");
     return;
   }
+
+  self->fade_control = gst_interpolation_control_source_new();
+  g_object_set (self->fade_control, "mode", GST_INTERPOLATION_MODE_LINEAR, NULL);
+  GstControlBinding *binding
+    = gst_direct_control_binding_new (GST_OBJECT(self->volume_element),
+                                      "volume",
+                                      self->fade_control);
+  gst_object_add_control_binding (GST_OBJECT(self->volume_element), binding);
+
   GST_BIN_GET_CLASS (self)->add_element (GST_BIN_CAST (self),
       self->volume_element);
 
@@ -189,6 +200,11 @@ gst_adcontrol_dispose (GObject * object)
 
   /* clean up as possible.  may be called multiple times */
 
+  if (adcontrol->fade_control) {
+    g_object_unref(adcontrol->fade_control);
+    adcontrol->fade_control = NULL;
+  }
+
   G_OBJECT_CLASS (gst_adcontrol_parent_class)->dispose (object);
 }
 
@@ -241,14 +257,40 @@ gst_adcontrol_chain (GstPad * pad, GstObject * parent, GstBuffer *buf)
   }
   gst_buffer_map (buf, &map, GST_MAP_READ);
   // TODO: extract descriptor-parsing code, validate headers, etc.
-  guint8 fade_byte = map.data[7];
-  guint8 pan_byte = map.data[8];
+  const guint8 fade_byte = map.data[7];
+  const guint8 pan_byte = map.data[8];
   gst_buffer_unmap(buf, &map);
 
-  gst_stream_volume_set_volume(GST_STREAM_VOLUME(self->volume_element), GST_STREAM_VOLUME_FORMAT_DB, fade_byte_to_volume(fade_byte));
-  //g_object_set (self->volume_element, "volume", fade_byte_to_volume(fade_byte), NULL);
+  GstTimedValueControlSource *fade_ctl
+    = GST_TIMED_VALUE_CONTROL_SOURCE(self->fade_control);
 
-  GST_DEBUG_OBJECT (self, "set volume %f ts=%" GST_TIME_FORMAT, fade_byte_to_volume(fade_byte), GST_TIME_ARGS(ts));
+  gdouble linear
+    = gst_stream_volume_convert_volume(GST_STREAM_VOLUME_FORMAT_DB,
+                                       GST_STREAM_VOLUME_FORMAT_LINEAR,
+                                       fade_byte_to_volume(fade_byte));
+  // TODO: why do we need this division by 10?
+  gst_timed_value_control_source_set (fade_ctl, ts, linear / 10.0);
+
+  // Remove old control points.
+  // FIXME: bit of a bodge removing points older than one second; better
+  // would be something like removing points older than the last buffer
+  // timestamp emitted by the volume element, or something like that.
+  GstClockTime old = ts - GST_SECOND;
+  GList *list = gst_timed_value_control_source_get_all(fade_ctl);
+  for (GList * l = list; l != NULL; l = l->next) {
+    GstTimedValue *timed = (GstTimedValue *)l->data;
+    if (timed->timestamp < old) {
+      gst_timed_value_control_source_unset (fade_ctl, timed->timestamp);
+    }
+  }
+  g_list_free(list);
+
+  GST_DEBUG_OBJECT (self,
+                    "set volume %f, linear=%f ts=%" GST_TIME_FORMAT " (%d vol ctrl points queued)",
+                    fade_byte_to_volume(fade_byte),
+                    linear,
+                    GST_TIME_ARGS(ts),
+                    gst_timed_value_control_source_get_count (fade_ctl));
 
   return GST_FLOW_OK;
 }

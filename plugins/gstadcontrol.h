@@ -21,7 +21,7 @@
 #define _GST_ADCONTROL_H_
 
 #include <gst/base/gstbasesink.h>
-#include <gst/controller/gsttimedvaluecontrolsource.h>
+#include <gst/controller/gstinterpolationcontrolsource.h>
 
 G_BEGIN_DECLS
 
@@ -42,6 +42,7 @@ struct _GstAdcontrol
   GstPad *main_sink;
   GstPad *main_src;
   GstPad *ad_sink;
+  GstControlSource *fade_control;
 };
 
 struct _GstAdcontrolClass

@@ -12,7 +12,7 @@ AC_CONFIG_SRCDIR([plugins/gstaudiodescriptionplugin.c])
 AC_CONFIG_HEADERS([config.h])
 
 dnl required version of automake
-AM_INIT_AUTOMAKE([1.10])
+AM_INIT_AUTOMAKE([foreign])
 AC_CONFIG_MACRO_DIR([m4])
 
 dnl enable mainainer mode by default

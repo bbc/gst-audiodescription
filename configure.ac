@@ -22,6 +22,9 @@ dnl check for tools (compiler etc.)
 AC_PROG_CC
 AM_PROG_CC_C_O
 
+dnl avoid compiler warnings about c99 usage
+AC_PROG_CC_C99
+
 dnl required version of libtool
 LT_PREREQ([2.2.6])
 LT_INIT

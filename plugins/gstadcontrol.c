@@ -111,8 +111,8 @@ gst_adcontrol_class_init (GstAdcontrolClass * klass)
   gst_element_class_add_pad_template (GST_ELEMENT_CLASS(klass),
       gst_static_pad_template_get (&sink_template));
 
-  gst_element_class_add_static_pad_template (GST_ELEMENT_CLASS(klass),
-      &gst_adcontrol_sink_template);
+  gst_element_class_add_pad_template (GST_ELEMENT_CLASS(klass),
+      gst_static_pad_template_get (&gst_adcontrol_sink_template));
 
   gst_element_class_set_static_metadata (GST_ELEMENT_CLASS(klass),
       "Audio Description Controler", "Generic", "Accepts Audio Description descriptors defining the 'pan' of the description track, and the 'fade' of the main track, and adjusts the audio levels of the given controls to suit",

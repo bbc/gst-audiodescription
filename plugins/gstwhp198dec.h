@@ -42,14 +42,7 @@ struct _GstWhp198dec
 
   // state of Manchester Encoding decode process,
   struct {
-    // ring buffer allowing access to the sample value $capacity samples ago, so that we can implement a simple edge detector
-    struct {
-      gint * samples;
-      size_t capacity;
-      size_t usage;
-      unsigned int write_offset;
-    } ring;
-    bool transition_active;
+    gint last_sample;
     int state;
     double duration_estimate;
     gint64 in_sample_count;

@@ -347,7 +347,6 @@ epsilon_equals(const float a, const float b, const float epsilon)
 #define DATA_RATE   1280.0   // bits-per-second
 #define EPSILON_SAMPLES 5
 #define THRESHOLD 1000
-#define DAMPING 0.1  // between 0 and 1: closer to 1 gives faster convergence, closer to 0 gives better immunity against transient errors
 
 static gboolean
 sign_change(gint a, gint b)
@@ -403,10 +402,6 @@ gst_whp198dec_handle_frame (GstWhp198dec *dec, GstBuffer * buffer)
           // this is a transition inbetween bit-centres, rather than
           // a bit-center transition itself
         } else if (epsilon_equals(error, 0.0, EPSILON_SAMPLES)) {
-          if (fabs(error) >= 1.0) {
-            dec->manchester.duration_estimate += error * DAMPING;
-            GST_DEBUG_OBJECT (dec, "duration_estimate becomes %f, error=%f", dec->manchester.duration_estimate, error);
-          }
           int bit = sample < 0 ? 1 : 0;
           ad_decoded_bit(dec, bit, ts + i * GST_SECOND / SAMPLE_FREQ);
           dec->manchester.next_expected_transition_sample += dec->manchester.duration_estimate;

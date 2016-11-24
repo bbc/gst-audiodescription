@@ -133,6 +133,7 @@ gst_whp198dec_chain (GstPad * pad, GstObject * parent, GstBuffer * buffer)
 static void
 gst_whp198dec_init (GstWhp198dec * whp198dec)
 {
+  whp198dec->manchester.last_sample = 0;
   whp198dec->manchester.state = STATE_UNSYNCHRONISED;
   whp198dec->descriptor.accumulator = 0;
   whp198dec->descriptor.state = AD_STATE_AWAIT_TAG;
@@ -354,6 +355,93 @@ sign_change(gint a, gint b)
   return (a < 0) != (b < 0);
 }
 
+static double
+current_transition_estimate_error(struct _GstWhp198decManchester *manchester)
+{
+  return manchester->in_sample_count - manchester->next_expected_transition_sample;
+}
+
+enum TransitionType
+{
+  TRANSITION_BIT,
+  TRANSITION_IGNORE,
+  TRANSITION_SYNC_LOST
+};
+
+static enum TransitionType
+mark_transition(struct _GstWhp198decManchester *manchester)
+{
+  enum TransitionType detect = TRANSITION_IGNORE;
+
+  if (manchester->state == STATE_UNSYNCHRONISED) {
+    manchester->state = STATE_FIRST_TRANSITION;
+    manchester->duration_estimate = SAMPLE_FREQ/DATA_RATE;
+    manchester->next_expected_transition_sample = manchester->in_sample_count + manchester->duration_estimate;
+  } else if (manchester->state == STATE_FIRST_TRANSITION) {
+    double error = current_transition_estimate_error(manchester);
+    if (epsilon_equals(error, -manchester->duration_estimate / 2, EPSILON_SAMPLES)) {
+      // this is a transition inbetween bit-centres, rather than a
+      // bit-center transition itself.  Ignore it and wait for the bit
+      // centre to turn up in about duration_estimate/2 samples
+    } else if (epsilon_equals(error, manchester->duration_estimate / 2, EPSILON_SAMPLES)) {
+      // we are out of phase (initial transition must have been a half
+      // bit),
+      manchester->next_expected_transition_sample -= manchester->duration_estimate / 2;
+    } else if (epsilon_equals(error, 0, EPSILON_SAMPLES)) {
+      // found transition at the expected bit-centre, so we are
+      // hopefully in sync,
+      manchester->state = STATE_SYNCHRONISED;
+      manchester->next_expected_transition_sample += manchester->duration_estimate;
+      //GST_DEBUG_OBJECT (dec, "sync found at in_sample_count=%ld", manchester->in_sample_count);
+    } else {
+      manchester->state = STATE_UNSYNCHRONISED;
+      //GST_DEBUG_OBJECT (dec, "failed to acquire sync (error=%f, in_sample_count=%ld, next_expected_transition_sample=%f, duration_estimate=%f)",
+      //                  error, dec->manchester.in_sample_count, dec->manchester.next_expected_transition_sample, dec->manchester.duration_estimate);
+    }
+  } else if (manchester->state == STATE_SYNCHRONISED) {
+    double error = current_transition_estimate_error(manchester);
+    if (epsilon_equals(error, -manchester->duration_estimate / 2, EPSILON_SAMPLES)) {
+      // this is a transition inbetween bit-centres, rather than
+      // a bit-center transition itself
+    } else if (epsilon_equals(error, 0.0, EPSILON_SAMPLES)) {
+      detect = TRANSITION_BIT;
+      manchester->next_expected_transition_sample += manchester->duration_estimate;
+    } else {
+      manchester->state = STATE_UNSYNCHRONISED;
+      detect = TRANSITION_SYNC_LOST;
+    }
+  }
+
+  return detect;
+}
+
+static void
+process_samples (GstWhp198dec *dec, gint16 *data, gint samples, GstClockTime buffer_ts)
+{
+  struct _GstWhp198decManchester *manchester = &dec->manchester;
+  for (int i=0; i<samples; i++) {
+    gint sample = data[i];
+
+    if (sign_change(sample, manchester->last_sample)) {
+      switch (mark_transition(manchester)) {
+        case TRANSITION_BIT: ;
+          int bit = sample < 0 ? 1 : 0;
+          ad_decoded_bit(dec, bit, buffer_ts + i * GST_SECOND / SAMPLE_FREQ);
+          break;
+        case TRANSITION_SYNC_LOST:
+          GST_DEBUG_OBJECT (dec, "lost sync");
+          ad_discontinuity(dec);
+          break;
+        case TRANSITION_IGNORE:
+          // nothing to do
+          break;
+      }
+    }
+    manchester->last_sample = sample;
+    manchester->in_sample_count++;
+  }
+}
+
 static GstFlowReturn
 gst_whp198dec_handle_frame (GstWhp198dec *dec, GstBuffer * buffer)
 {
@@ -363,59 +451,11 @@ gst_whp198dec_handle_frame (GstWhp198dec *dec, GstBuffer * buffer)
     return GST_FLOW_OK;
   }
 
-  GstClockTime ts = GST_BUFFER_PTS(buffer);
-  GST_DEBUG_OBJECT (dec, "buf=%p, ts=%ld", buffer, ts);
   gst_buffer_map (buffer, &map, GST_MAP_READ);
-  gint samples = map.size / sizeof(guint16);
-  gint16 *data = (gint16 *) map.data;
-  for (int i=0; i<samples; i++) {
-    gint sample = data[i];
-
-    if (sign_change(sample, dec->manchester.last_sample)) {
-      if (dec->manchester.state == STATE_UNSYNCHRONISED) {
-        dec->manchester.state = STATE_FIRST_TRANSITION;
-        dec->manchester.duration_estimate = SAMPLE_FREQ/DATA_RATE;
-        dec->manchester.next_expected_transition_sample = dec->manchester.in_sample_count + dec->manchester.duration_estimate;
-      } else if (dec->manchester.state == STATE_FIRST_TRANSITION) {
-        double error = dec->manchester.in_sample_count - dec->manchester.next_expected_transition_sample;
-        if (epsilon_equals(error, -dec->manchester.duration_estimate / 2, EPSILON_SAMPLES)) {
-          // this is a transition inbetween bit-centres, rather than a
-          // bit-center transition itself.  Ignore it and wait for the bit
-          // centre to turn up in about duration_estimate/2 samples
-        } else if (epsilon_equals(error, dec->manchester.duration_estimate / 2, EPSILON_SAMPLES)) {
-          // we are out of phase (initial transition must have been a half
-          // bit),
-          dec->manchester.next_expected_transition_sample -= dec->manchester.duration_estimate / 2;
-        } else if (epsilon_equals(error, 0, EPSILON_SAMPLES)) {
-          // found transition at the expected bit-centre, so we are
-          // hopefully in sync,
-          dec->manchester.state = STATE_SYNCHRONISED;
-          dec->manchester.next_expected_transition_sample += dec->manchester.duration_estimate;
-          GST_DEBUG_OBJECT (dec, "sync found at in_sample_count=%ld", dec->manchester.in_sample_count);
-        } else {
-          dec->manchester.state = STATE_UNSYNCHRONISED;
-          GST_DEBUG_OBJECT (dec, "failed to acquire sync (error=%f, in_sample_count=%ld, next_expected_transition_sample=%f, duration_estimate=%f)", error, dec->manchester.in_sample_count, dec->manchester.next_expected_transition_sample, dec->manchester.duration_estimate);
-        }
-      } else if (dec->manchester.state == STATE_SYNCHRONISED) {
-        double error = dec->manchester.in_sample_count - dec->manchester.next_expected_transition_sample;
-        if (epsilon_equals(error, -dec->manchester.duration_estimate / 2, EPSILON_SAMPLES)) {
-          // this is a transition inbetween bit-centres, rather than
-          // a bit-center transition itself
-        } else if (epsilon_equals(error, 0.0, EPSILON_SAMPLES)) {
-          int bit = sample < 0 ? 1 : 0;
-          ad_decoded_bit(dec, bit, ts + i * GST_SECOND / SAMPLE_FREQ);
-          dec->manchester.next_expected_transition_sample += dec->manchester.duration_estimate;
-        } else {
-          dec->manchester.state = STATE_UNSYNCHRONISED;
-          GST_DEBUG_OBJECT (dec, "lost sync (error=%f)", error);
-          ad_discontinuity(dec);
-        }
-      }
-    }
-    dec->manchester.last_sample = sample;
-    dec->manchester.in_sample_count++;
-  }
-  //GST_DEBUG_OBJECT (dec, "handle_frame; %d samples, discont=%d", samples, GST_BUFFER_IS_DISCONT(buffer));
+  process_samples (dec,
+                   (gint16 *)map.data,
+                   map.size / sizeof(guint16),
+                   GST_BUFFER_PTS(buffer));
   gst_buffer_unmap (buffer, &map);
   return GST_FLOW_OK;
 }

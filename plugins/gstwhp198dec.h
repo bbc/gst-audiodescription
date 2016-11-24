@@ -33,6 +33,13 @@ G_BEGIN_DECLS
 typedef struct _GstWhp198dec GstWhp198dec;
 typedef struct _GstWhp198decClass GstWhp198decClass;
 
+struct _GstWhp198decManchester {
+  gint last_sample;
+  int state;
+  double duration_estimate;
+  gint64 in_sample_count;
+  double next_expected_transition_sample;
+};
 
 struct _GstWhp198dec
 {
@@ -41,13 +48,7 @@ struct _GstWhp198dec
   GstPad *sinkpad, *srcpad;
 
   // state of Manchester Encoding decode process,
-  struct {
-    gint last_sample;
-    int state;
-    double duration_estimate;
-    gint64 in_sample_count;
-    double next_expected_transition_sample;
-  } manchester;
+  struct _GstWhp198decManchester manchester;
 
   // state of AD Descriptor recogniser,
   struct {

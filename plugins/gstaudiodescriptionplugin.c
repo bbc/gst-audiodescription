@@ -1,6 +1,6 @@
 /*
  * GStreamer
- * Copyright (C) 2016 David Holroyd <dave@badgers-in-foil.co.uk>
+ * David Holroyd <dave@badgers-in-foil.co.uk>, Copyright (C) BBC 2016-2017
  * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),

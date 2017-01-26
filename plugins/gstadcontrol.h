@@ -1,5 +1,5 @@
 /* GStreamer
- * Copyright (C) 2016 David Holroyd <dave@badgers-in-foil.co.uk>
+ * David Holroyd <dave@badgers-in-foil.co.uk>, Copyright (C) BBC 2016-2017
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public

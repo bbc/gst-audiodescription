@@ -236,9 +236,10 @@ pan_byte_to_pan(guint8 pan_byte)
     pan = 0x15;
   } else if (pan_byte >= 0x80 && pan_byte <= 0xea) {
     pan = 0xeb;
-  }
-  if (pan > 0x80) {
-    pan = 0x100 - pan;
+  } else if (pan_byte > 0x80) {
+    pan = 0x100 - pan_byte;
+  } else {
+    pan = -pan_byte;
   }
   const gdouble MAX = 0x15;
   return pan / MAX;

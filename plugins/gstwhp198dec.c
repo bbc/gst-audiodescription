@@ -294,7 +294,10 @@ ad_decoded_bit(GstWhp198dec *dec, const int bit, GstClockTime ts)
         // do,
         GST_BUFFER_PTS(buf) = ts;
         GstMapInfo map;
-        gst_buffer_map (buf, &map, GST_MAP_WRITE);
+        if (!gst_buffer_map (buf, &map, GST_MAP_WRITE)) {
+          ad_discontinuity(dec);
+          return;
+	}
         dec->descriptor.buffer_write_offset = 0;
         map.data[dec->descriptor.buffer_write_offset++] = (dec->descriptor.accumulator >> (7*BYTE)) & 0xff;
         map.data[dec->descriptor.buffer_write_offset++] = (dec->descriptor.accumulator >> (6*BYTE)) & 0xff;
@@ -316,14 +319,20 @@ ad_decoded_bit(GstWhp198dec *dec, const int bit, GstClockTime ts)
       dec->descriptor.remaining_tail_bits--;
       if (dec->descriptor.remaining_tail_bits % 8 == 0) {
         GstMapInfo map;
-        gst_buffer_map (dec->descriptor.buffer, &map, GST_MAP_WRITE);
+        if (!gst_buffer_map (dec->descriptor.buffer, &map, GST_MAP_WRITE)) {
+          ad_discontinuity(dec);
+          return;
+        }
         map.data[dec->descriptor.buffer_write_offset++] = dec->descriptor.accumulator & 0xff;
         gst_buffer_unmap(dec->descriptor.buffer, &map);
       }
       if (dec->descriptor.remaining_tail_bits == 0) {
         dec->descriptor.state = AD_STATE_AWAIT_TAG;
         GstMapInfo map;
-        gst_buffer_map (dec->descriptor.buffer, &map, GST_MAP_WRITE);
+        if (!gst_buffer_map (dec->descriptor.buffer, &map, GST_MAP_WRITE)) {
+          ad_discontinuity(dec);
+          return;
+        }
         int crc = crc_16_ccitt(map.data, gst_buffer_get_size(dec->descriptor.buffer));
         gst_buffer_unmap(dec->descriptor.buffer, &map);
         if (crc == 0) {
@@ -451,7 +460,9 @@ gst_whp198dec_handle_frame (GstWhp198dec *dec, GstBuffer * buffer)
     return GST_FLOW_OK;
   }
 
-  gst_buffer_map (buffer, &map, GST_MAP_READ);
+  if (!gst_buffer_map (buffer, &map, GST_MAP_READ)) {
+    return GST_FLOW_ERROR;
+  }
   process_samples (dec,
                    (gint16 *)map.data,
                    map.size / sizeof(guint16),

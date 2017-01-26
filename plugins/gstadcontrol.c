@@ -255,7 +255,9 @@ gst_adcontrol_chain (GstPad * pad, GstObject * parent, GstBuffer *buf)
     GST_DEBUG_OBJECT (self, "audio descriptor too short");
     return GST_FLOW_ERROR;
   }
-  gst_buffer_map (buf, &map, GST_MAP_READ);
+  if (!gst_buffer_map (buf, &map, GST_MAP_READ)) {
+    return GST_FLOW_ERROR;
+  }
   // TODO: extract descriptor-parsing code, validate headers, etc.
   const guint8 fade_byte = map.data[7];
   const guint8 pan_byte = map.data[8];

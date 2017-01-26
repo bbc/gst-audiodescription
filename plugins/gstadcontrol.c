@@ -271,7 +271,9 @@ gst_adcontrol_chain (GstPad * pad, GstObject * parent, GstBuffer *buf)
                                        GST_STREAM_VOLUME_FORMAT_LINEAR,
                                        fade_byte_to_volume(fade_byte));
   // TODO: why do we need this division by 10?
-  gst_timed_value_control_source_set (fade_ctl, ts, linear / 10.0);
+  if (!gst_timed_value_control_source_set (fade_ctl, ts, linear / 10.0)) {
+    GST_DEBUG_OBJECT (self, "gst_timed_value_control_source_set(fade_ctl, ...) failed");
+  }
 
   // Remove old control points.
   // FIXME: bit of a bodge removing points older than one second; better
@@ -282,7 +284,9 @@ gst_adcontrol_chain (GstPad * pad, GstObject * parent, GstBuffer *buf)
   for (GList * l = list; l != NULL; l = l->next) {
     GstTimedValue *timed = (GstTimedValue *)l->data;
     if (timed->timestamp < old) {
-      gst_timed_value_control_source_unset (fade_ctl, timed->timestamp);
+      if (!gst_timed_value_control_source_unset (fade_ctl, timed->timestamp)) {
+        GST_DEBUG_OBJECT (self, "gst_timed_value_control_source_unset(pan_ctl, ...) failed");
+      }
     }
   }
   g_list_free(list);
